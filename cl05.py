@@ -1,3 +1,20 @@
+# ==========================================================
+# PERSONAL USE CASE: 
+# My primary email for job searching is Inbox.lv, 
+# while personal events are on Gmail. 
+# ----------------------------------------------------------
+# PROBLEM: Schedules often overlap, leading to conflicts.
+# SOLUTION: This AI Agent unifies all Inbox.lv events into 
+#           one Google Calendar automatically.
+# RESULT: Zero manual entry and a perfectly synced schedule!
+# ==========================================================
+# ==========================================================
+# --- DEMO SCRIPT SUBTITLES (For Video Demo) ---
+# 1. AI Calendar Agent v5.2.1 - Automated Event Extraction
+# 2. Scanning Inbox for UNREAD invitations (ICS & Plain Text)
+# 3. AI Engine (Claude-3) analyzing email content...
+# 4. Success: Event synchronized with Google Calendar!
+# --------------------------------------------------
 import os
 import json
 import time
