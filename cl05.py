@@ -88,46 +88,54 @@ class CalendarApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.settings = self.load_settings()
+        
         ctk.set_appearance_mode(self.settings.get("appearance", "System"))
         ctk.set_default_color_theme(self.settings.get("theme", "blue"))
         
-        self.title("Aģents v5.2")
-        self.geometry("500x750")
+        self.title("Aģents v5.2.1")
+        self.geometry("500x780")
         
         self.processed_emails = self.load_processed_ids()
         self.ai_client = None
         self.dialog_lock = threading.Lock()
         
-        # UI
+        # --- UI ---
         style_frame = ctk.CTkFrame(self, height=40)
         style_frame.pack(pady=(10, 0), padx=20, fill="x")
         self.app_mode = ctk.CTkOptionMenu(style_frame, values=["System", "Dark", "Light"], command=self.change_appearance, width=100)
         self.app_mode.set(self.settings.get("appearance", "System"))
         self.app_mode.pack(side="right", padx=10, pady=5)
+        ctk.CTkLabel(style_frame, text="Režīms:").pack(side="right")
         
         settings_frame = ctk.CTkFrame(self, corner_radius=15)
         settings_frame.pack(pady=10, padx=20, fill="x")
         ctk.CTkLabel(settings_frame, text="Iestatījumi", font=("Arial", 14, "bold")).pack(pady=10)
 
-        # AI Atslēga
-        ctk.CTkLabel(settings_frame, text="Claude API Key:").pack(anchor="w", padx=20)
+        ctk.CTkLabel(settings_frame, text="Claude API Key:", font=("Arial", 12)).pack(anchor="w", padx=25)
         self.ai_entry = ctk.CTkEntry(settings_frame, placeholder_text="sk-ant-api...", show="*", width=350)
         self.ai_entry.insert(0, self.settings.get("ai_key", ""))
-        self.ai_entry.pack(pady=5, padx=20)
+        self.ai_entry.pack(pady=(0, 10), padx=20)
 
+        ctk.CTkLabel(settings_frame, text="E-pasta pakalpojums:", font=("Arial", 12)).pack(anchor="w", padx=25)
         self.provider_var = ctk.StringVar(value=self.settings.get("provider", "Inbox.lv"))
         self.provider_menu = ctk.CTkOptionMenu(settings_frame, values=list(SERVERS.keys()), variable=self.provider_var, width=350)
-        self.provider_menu.pack(pady=5)
+        self.provider_menu.pack(pady=(0, 10))
 
-        self.email_entry = ctk.CTkEntry(settings_frame, placeholder_text="E-pasta adrese", width=350)
+        ctk.CTkLabel(settings_frame, text="E-pasta adrese:", font=("Arial", 12)).pack(anchor="w", padx=25)
+        self.email_entry = ctk.CTkEntry(settings_frame, placeholder_text="piemēram: lietotājs@inbox.lv", width=350)
         self.email_entry.insert(0, self.settings.get("email", ""))
-        self.email_entry.pack(pady=5)
+        self.email_entry.pack(pady=(0, 10))
 
-        self.pass_entry = ctk.CTkEntry(settings_frame, placeholder_text="Lietotnes parole", show="*", width=350)
+        ctk.CTkLabel(settings_frame, text="Lietotnes parole (App Password):", font=("Arial", 12)).pack(anchor="w", padx=25)
+        self.pass_entry = ctk.CTkEntry(settings_frame, placeholder_text="16-zīmju parole", show="*", width=350)
         self.pass_entry.insert(0, self.settings.get("password", ""))
-        self.pass_entry.pack(pady=(5, 15))
+        self.pass_entry.pack(pady=(0, 5))
+        
+        link_label = ctk.CTkLabel(settings_frame, text="Kā dabūt Inbox paroli?", text_color="#3498db", cursor="hand2", font=("Arial", 11, "underline"))
+        link_label.pack(pady=(0, 15))
+        link_label.bind("<Button-1>", lambda e: webbrowser.open("https://help.inbox.lv/help/categories/6/52/241"))
 
-        self.btn_save = ctk.CTkButton(self, text="STARTĒT AGENTU", command=self.start_sync, fg_color="#2ecc71", height=45)
+        self.btn_save = ctk.CTkButton(self, text="STARTĒT AGENTU", command=self.start_sync, fg_color="#2ecc71", height=45, font=("Roboto Medium", 16))
         self.btn_save.pack(pady=15, padx=20, fill="x")
 
         status_frame = ctk.CTkFrame(self, corner_radius=10)
@@ -145,8 +153,10 @@ class CalendarApp(ctk.CTk):
 
     def load_settings(self):
         if os.path.exists(SETTINGS_FILE):
-            with open(SETTINGS_FILE, "r") as f: return json.load(f)
-        return {"appearance": "System", "theme": "blue"}
+            try:
+                with open(SETTINGS_FILE, "r") as f: return json.load(f)
+            except: pass
+        return {"appearance": "System", "theme": "blue", "provider": "Inbox.lv", "email": "", "password": "", "ai_key": ""}
 
     def save_settings(self):
         with open(SETTINGS_FILE, "w") as f: json.dump(self.settings, f)
@@ -166,40 +176,44 @@ class CalendarApp(ctk.CTk):
 
     def get_google_service(self):
         creds = None
-        if os.path.exists('token.json'): creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        if os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file('token.json', SCOPES)
         if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token: creds.refresh(Request())
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
             else:
+                if not os.path.exists('credentials.json'):
+                    raise Exception("Trūkst 'credentials.json' faila!")
                 flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
                 creds = flow.run_local_server(port=0)
-            with open('token.json', 'w') as token: token.write(creds.to_json())
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
         return build('calendar', 'v3', credentials=creds)
 
     def sync_logic(self):
         user, pwd, ai_key = self.email_entry.get(), self.pass_entry.get(), self.ai_entry.get()
         if not ai_key:
-            self.log("❌ Kļūda: Ievadiet Claude API atslēgu!"); self.running = False
+            self.log("❌ Trūkst Claude API atslēgas!"); self.running = False
             self.btn_save.configure(state="normal", text="Mēģināt vēlreiz"); return
         
-        self.ai_client = anthropic.Anthropic(api_key=ai_key.strip())
-        srv = SERVERS[self.provider_var.get()]
         self.settings.update({"provider": self.provider_var.get(), "email": user, "password": pwd, "ai_key": ai_key})
         self.save_settings()
-
+        
         try:
+            self.ai_client = anthropic.Anthropic(api_key=ai_key.strip())
+            srv = SERVERS[self.provider_var.get()]
             self.log("🔗 Savienojos..."); self.service = self.get_google_service()
             mail = imaplib.IMAP4_SSL(srv); mail.login(user, pwd)
+            
             while self.running:
                 mail.select("INBOX")
                 _, data = mail.search(None, f'(SINCE "{datetime.datetime.now().strftime("%d-%b-%Y")}")')
-                for m_id in data[0].split()[-10:]:
+                ids = data[0].split()
+                for m_id in ids[-10:]:
                     m_id_str = m_id.decode()
                     if m_id_str in self.processed_emails: continue
                     _, msg_data = mail.fetch(m_id, '(RFC822)')
                     msg = email.message_from_bytes(msg_data[0][1])
-                    
-                    # Loģika e-pastu apstrādei (ICS vai AI)
-                    # ... (iepriekšējā ICS/AI loģika paliek tā pati) ...
                     event_data = None
                     for part in msg.walk():
                         if part.get_content_type() in ['text/calendar', 'application/ics']:
@@ -208,14 +222,17 @@ class CalendarApp(ctk.CTk):
                                 c = Calendar(ics_data); e = list(c.events)[0]
                                 event_data = {'summary': e.name, 'start': e.begin.isoformat(), 'end': e.end.isoformat()}
                             except: pass
-                    
                     if not event_data:
                         body = ""
                         for p in msg.walk():
-                            if p.get_content_type() == "text/plain": body = p.get_payload(decode=True).decode('utf-8', 'replace'); break
+                            if p.get_content_type() == "text/plain":
+                                body = p.get_payload(decode=True).decode('utf-8', 'replace'); break
                         if len(body.strip()) > 10:
                             prompt = f"Extract event from: '{body[:500]}'. Return ONLY JSON: {{'summary': '...', 'start': 'ISO'}}"
-                            res = self.ai_client.messages.create(model="claude-3-haiku-20240307", max_tokens=200, system="JSON only.", messages=[{"role": "user", "content": prompt}])
+                            res = self.ai_client.messages.create(
+                                model="claude-3-haiku-20240307", max_tokens=200, system="Return JSON only.", 
+                                messages=[{"role": "user", "content": prompt}]
+                            )
                             event_data = json.loads(re.search(r'\{.*\}', res.content[0].text).group(0))
                             if '+' not in event_data['start']: event_data['start'] += "+02:00"
 
